@@ -26,7 +26,8 @@
   .muted{ color:var(--muted); font-size:.95rem }
   .status{ font-size:.95rem; margin-top:.4rem }
   .ok{ color:#0a7f2e } .warn{ color:#b85c00 } .err{ color:#b00020 }
-  #qrScanner{ min-height:220px; border:1px dashed var(--border); border-radius:12px; display:flex; align-items:center; justify-content:center; overflow:hidden }
+  #qrScanner{ min-height:220px; border:1px dashed var(--border); border-radius:12px; display:flex; align-items:center; justify-content:center; overflow:hidden; position:relative }
+  #qrScanner video{ width:100%; height:auto; }
   footer{ color:#777; text-align:center; padding:18px 8px 36px }
   @media (max-width:600px){ header img{ max-width:180px } #qrScanner{ min-height:180px } }
 </style>
@@ -39,7 +40,7 @@
 
 <main>
   <section class="card">
-    <p class="muted">Manual entry works anytime. Camera scanning is available only when online. On GitHub Pages we first try a <b>local copy</b> of the library; if missing, we fall back to CDNs.</p>
+    <p class="muted">Manual entry works anytime. Camera scanning is available only when online. On GitHub Pages this page uses the browser's <b>BarcodeDetector</b> when available; if not, it falls back to loading <code>html5-qrcode</code> from CDN.</p>
 
     <label for="qrInput">QR payload text</label>
     <input id="qrInput" type="text" placeholder="e.g. 02KCBFD16100BGF2R2001758" autocomplete="off" />
@@ -71,10 +72,11 @@
   </section>
 
   <section class="card">
-    <h2 style="margin:.2rem 0 .6rem">How this works on GitHub Pages</h2>
+    <h2 style="margin:.2rem 0 .6rem">GitHub Pages behavior</h2>
     <ul class="muted" style="margin:.2rem 0 .6rem">
-      <li>When <b>online</b>, the page checks <code>assets/html5-qrcode.min.js</code> (repo-hosted). If not found, it tries CDNs (unpkg → jsDelivr).</li>
-      <li>When <b>offline</b> or if both CDNs are blocked and no local file, camera is disabled; manual entry still works.</li>
+      <li><b>Online</b>: uses native <code>BarcodeDetector</code> if supported; otherwise tries CDNs for <code>html5-qrcode</code> (unpkg → jsDelivr).</li>
+      <li><b>Offline</b>: camera disabled; manual entry still works.</li>
+      <li>You can delete the empty <code>assets/html5-qrcode.min.js</code> file — it’s not required here.</li>
     </ul>
   </section>
 </main>
@@ -82,33 +84,150 @@
 <footer>© <span id="yearNow"></span> BEVE POWER</footer>
 
 <script>
-const LOCAL_LIB = "assets/html5-qrcode.min.js";
-const CDNS = [
+const CDNS=[
   "https://unpkg.com/html5-qrcode@2.3.7/minified/html5-qrcode.min.js",
   "https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.7/minified/html5-qrcode.min.js"
 ];
-let html5Ready=false, scanner=null, running=false;
-function setStatus(text, cls){ const el=document.getElementById('netStatus'); el.textContent=text; el.className='status ' + (cls||''); }
-function toggleButtons(){ document.getElementById('startBtn').disabled = !html5Ready || !navigator.onLine; document.getElementById('stopBtn').disabled = !running; }
-function loadScript(src){ return new Promise((res,rej)=>{ const s=document.createElement('script'); s.src=src; s.async=true; s.onload=()=>res(src); s.onerror=()=>rej(new Error('Failed to load '+src)); document.head.appendChild(s); }); }
-async function loadLocalThenCdn(){
-  if(!navigator.onLine){ setStatus('Offline: camera scanning disabled. Manual entry works.', 'warn'); html5Ready=false; toggleButtons(); return; }
-  setStatus('Online: checking camera support…', 'ok');
-  try{ await loadScript(LOCAL_LIB); if(typeof Html5Qrcode==='function'){ html5Ready=true; setStatus('Online: camera scanning available (local library).', 'ok'); toggleButtons(); return; } }catch{}
-  for(const url of CDNS){ try{ await loadScript(url); if(typeof Html5Qrcode==='function'){ html5Ready=true; setStatus('Online: camera scanning available (CDN).', 'ok'); toggleButtons(); return; } }catch{} }
-  setStatus('Could not load camera library (local/CDN). Camera disabled. You can still paste QR text.', 'warn'); html5Ready=false; toggleButtons();
+let html5Ready=false, usingBarcodeDetector=false, scanner=null, running=false, videoEl=null, stream=null, rafId=null;
+
+function setStatus(t,c){const el=document.getElementById('netStatus'); el.textContent=t; el.className='status '+(c||'');}
+function toggleButtons(){document.getElementById('startBtn').disabled = !(navigator.onLine && (usingBarcodeDetector || html5Ready)); document.getElementById('stopBtn').disabled = !running;}
+
+function loadScript(src){return new Promise((res,rej)=>{const s=document.createElement('script'); s.src=src; s.async=true; s.onload=()=>res(src); s.onerror=()=>rej(new Error('Failed to load '+src)); document.head.appendChild(s);});}
+
+async function prepareCamera(){
+  if(!navigator.onLine){ setStatus('Offline: camera scanning disabled. Manual entry works.', 'warn'); toggleButtons(); return; }
+  // Prefer BarcodeDetector if available
+  if('BarcodeDetector' in window){
+    try{
+      const formats = await BarcodeDetector.getSupportedFormats ? await BarcodeDetector.getSupportedFormats() : ['qr_code'];
+      if(!formats || formats.includes('qr_code')){
+        usingBarcodeDetector = true;
+        setStatus('Online: camera scanning available (BarcodeDetector).', 'ok');
+        toggleButtons();
+        return;
+      }
+    }catch(e){ /* continue to CDN fallback */ }
+  }
+  // Fallback: html5-qrcode from CDN
+  for(const url of CDNS){
+    try{
+      await loadScript(url);
+      if(typeof Html5Qrcode==='function'){ html5Ready=true; setStatus('Online: camera scanning available (CDN).', 'ok'); toggleButtons(); return; }
+    }catch(e){ /* try next */ }
+  }
+  setStatus('Could not enable camera scanning (no BarcodeDetector & CDN blocked). Manual entry still works.', 'warn');
+  toggleButtons();
 }
-window.addEventListener('online', loadLocalThenCdn);
-window.addEventListener('offline', ()=>{ setStatus('Offline: camera scanning disabled. Manual entry works.', 'warn'); html5Ready=false; toggleButtons(); });
-window.addEventListener('load', ()=>{ document.getElementById('yearNow').textContent = new Date().getFullYear(); document.getElementById('qrInput').value = '02KCBFD16100BGF2R2001758'; loadLocalThenCdn(); });
+
+window.addEventListener('online', prepareCamera);
+window.addEventListener('offline', ()=>{ setStatus('Offline: camera scanning disabled. Manual entry works.', 'warn'); toggleButtons(); });
+window.addEventListener('load', ()=>{
+  document.getElementById('yearNow').textContent = new Date().getFullYear();
+  document.getElementById('qrInput').value = '02KCBFD16100BGF2R2001758';
+  prepareCamera();
+});
+
+// ---- Decoder (from your spec) ----
 const yearMap={'B':2021,'C':2022,'D':2023,'E':2024,'F':2025,'G':2026,'H':2027,'J':2028,'K':2029};
 const monthMap={'1':'Jan','2':'Feb','3':'Mar','4':'Apr','5':'May','6':'Jun','7':'Jul','8':'Aug','9':'Sep','A':'Oct','B':'Nov','C':'Dec'};
 const dateMap={'1':1,'2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'A':10,'B':11,'C':12,'D':13,'E':14,'F':15,'G':16,'H':17,'J':18,'K':19,'L':20,'M':21,'N':22,'P':23,'R':24,'S':25,'T':26,'V':27,'W':28,'X':29,'Y':30,'O':31};
-function decodeCell(qr){ qr = (qr||'').trim().toUpperCase(); if(!qr) return {error:'Empty QR payload'}; const serialMatch = qr.match(/\d{5,}$/); const serial = serialMatch ? serialMatch[0] : 'Unknown'; const before = serialMatch ? qr.slice(0,-serial.length) : qr; const dateC = before.slice(-1), monthC = before.slice(-2,-1), yearC = before.slice(-3,-2); const year = yearMap[yearC] || 'Unknown', month = monthMap[monthC] || 'Unknown', day = dateMap[dateC] || 'Unknown'; const capacity = qr.includes('300') ? '300Ah' : qr.includes('280') ? '280Ah' : qr.includes('100') ? '100Ah' : 'Unknown'; return {year,month,day,serial,capacity}; }
-function decodeInput(){ const txt = document.getElementById('qrInput').value; const r = decodeCell(txt); if(r.error){ alert(r.error); return; } document.getElementById('decodedCard').style.display='block'; document.getElementById('cellType').textContent = 'GREAT POWER'; document.getElementById('capacity').textContent = r.capacity; document.getElementById('voltage').textContent = '3.2V'; document.getElementById('base').textContent = 'BEVE Factory'; document.getElementById('date').textContent = `${r.day} ${r.month} ${r.year}`; document.getElementById('serial').textContent = r.serial; document.getElementById('notes').textContent = 'Decoded successfully.'; }
-function clearAll(){ document.getElementById('qrInput').value=''; document.getElementById('decodedCard').style.display='none'; stopScanner(); }
-async function startScanner(){ if(!navigator.onLine){ alert('You are offline. Camera scanning is available only when online.'); return; } if(typeof Html5Qrcode!=='function'){ alert('Camera library not loaded yet. Please wait or refresh.'); return; } try{ scanner = new Html5Qrcode('qrScanner'); const cfg = { fps: 10, qrbox: { width: 250, height: 250 } }; await scanner.start({ facingMode:'environment' }, cfg, (text)=>{ stopScanner(); document.getElementById('qrInput').value = text; decodeInput(); }); running = true; toggleButtons(); }catch(e){ alert('Camera error: ' + e); running = false; toggleButtons(); } }
-function stopScanner(){ if(scanner && running){ scanner.stop().then(()=>scanner.clear()).catch(()=>{}); } running = false; toggleButtons(); }
+
+function decodeCell(qr){
+  qr=(qr||'').trim().toUpperCase(); if(!qr) return {error:'Empty QR payload'};
+  const serialMatch=qr.match(/\d{5,}$/); const serial=serialMatch?serialMatch[0]:'Unknown';
+  const before=serialMatch?qr.slice(0,-serial.length):qr;
+  const dateC=before.slice(-1), monthC=before.slice(-2,-1), yearC=before.slice(-3,-2);
+  const year=yearMap[yearC]||'Unknown', month=monthMap[monthC]||'Unknown', day=dateMap[dateC]||'Unknown';
+  const capacity = qr.includes('300') ? '300Ah' : qr.includes('280') ? '280Ah' : qr.includes('100') ? '100Ah' : 'Unknown';
+  return {year,month,day,serial,capacity};
+}
+
+function decodeInput(){
+  const txt=document.getElementById('qrInput').value;
+  const r=decodeCell(txt); if(r.error){ alert(r.error); return; }
+  document.getElementById('decodedCard').style.display='block';
+  document.getElementById('cellType').textContent='GREAT POWER';
+  document.getElementById('capacity').textContent=r.capacity;
+  document.getElementById('voltage').textContent='3.2V';
+  document.getElementById('base').textContent='BEVE Factory';
+  document.getElementById('date').textContent=`${r.day} ${r.month} ${r.year}`;
+  document.getElementById('serial').textContent=r.serial;
+  document.getElementById('notes').textContent='Decoded successfully.';
+}
+
+function clearAll(){
+  document.getElementById('qrInput').value='';
+  document.getElementById('decodedCard').style.display='none';
+  stopScanner();
+}
+
+// ---- Camera control ----
+async function startScanner(){
+  if(!navigator.onLine){ alert('You are offline. Camera scanning is available only when online.'); return; }
+  // BarcodeDetector path
+  if(usingBarcodeDetector){
+    try{
+      const constraints={ video:{ facingMode:{ideal:'environment'} } };
+      stream = await navigator.mediaDevices.getUserMedia(constraints);
+      videoEl = document.createElement('video');
+      videoEl.playsInline = true; // iOS
+      videoEl.srcObject = stream;
+      await videoEl.play();
+      document.getElementById('qrScanner').innerHTML='';
+      document.getElementById('qrScanner').appendChild(videoEl);
+      running=true; toggleButtons();
+      const detector = new BarcodeDetector({ formats: ['qr_code'] });
+      const scanLoop = async ()=>{
+        if(!running) return;
+        try{
+          const codes = await detector.detect(videoEl);
+          if(codes && codes.length){
+            stopScanner();
+            document.getElementById('qrInput').value = codes[0].rawValue || codes[0].rawValue || '';
+            decodeInput();
+            return;
+          }
+        }catch(e){ /* ignore frame errors */ }
+        rafId = requestAnimationFrame(scanLoop);
+      };
+      scanLoop();
+    }catch(e){
+      alert('Camera error (BarcodeDetector): '+e);
+      running=false; toggleButtons();
+    }
+    return;
+  }
+  // html5-qrcode path
+  if(typeof Html5Qrcode!=='function'){ alert('Camera library not loaded yet. Please wait or refresh.'); return; }
+  try{
+    scanner = new Html5Qrcode('qrScanner');
+    const cfg = { fps: 10, qrbox: { width: 250, height: 250 } };
+    await scanner.start({ facingMode:'environment' }, cfg, (text)=>{
+      stopScanner();
+      document.getElementById('qrInput').value = text;
+      decodeInput();
+    });
+    running = true; toggleButtons();
+  }catch(e){
+    alert('Camera error: ' + e);
+    running = false; toggleButtons();
+  }
+}
+
+function stopScanner(){
+  // Stop BarcodeDetector flow
+  if(usingBarcodeDetector){
+    if(rafId){ cancelAnimationFrame(rafId); rafId=null; }
+    if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
+    if(videoEl){ try{ videoEl.pause(); }catch{} videoEl.remove(); videoEl=null; }
+  }
+  // Stop html5-qrcode flow
+  if(scanner && running && typeof scanner.stop==='function'){
+    scanner.stop().then(()=>scanner.clear()).catch(()=>{});
+  }
+  running=false; toggleButtons();
+}
 </script>
 </body>
 </html>
