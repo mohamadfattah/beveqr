@@ -1,141 +1,132 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>BEVE POWER | QR Cell Decoder</title>
-<meta name="description" content="Decode GREAT POWER cell QR codes for BEVE POWER TITAN batteries — Manual entry or camera scan (GitHub Pages ready)." />
-<link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
-<style>
-  :root{ --brand:#d92323; --bg:#fafafa; --card:#fff; --text:#222; --muted:#666; --border:#e9e9e9; }
-  body{ margin:0; background:var(--bg); color:var(--text); font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial; }
-  header{ background:#fff; text-align:center; box-shadow:0 1px 8px rgba(0,0,0,.06); padding:14px; position:sticky; top:0; z-index:10; }
-  header img{ max-width:220px; width:100%; height:auto; }
-  h1{ color:var(--brand); font-size:1.5rem; margin:0.5rem 0 0; }
-  main{ max-width:960px; margin:auto; padding:1rem; }
-  .card{ background:#fff; border-radius:12px; box-shadow:0 2px 8px rgba(0,0,0,.05); padding:1rem; margin:1rem 0; }
-  label{ display:block; font-weight:600; margin-top:.5rem; }
-  input[type=text]{ width:100%; padding:.7rem; font-size:1rem; border:1px solid var(--border); border-radius:8px; margin-bottom:.5rem; }
-  button{ background:var(--brand); color:#fff; border:none; border-radius:8px; padding:.6rem 1rem; font-size:1rem; cursor:pointer; margin:.25rem; }
-  button.secondary{ background:#444; }
-  button:disabled{ background:#aaa; cursor:not-allowed; }
-  #reader{ min-height:260px; border:1px dashed var(--border); border-radius:12px; display:flex; align-items:center; justify-content:center; margin-top:10px; }
-  .muted{ color:var(--muted); font-size:.9rem; }
-  footer{ text-align:center; color:#777; padding:1rem; font-size:.9rem; }
-</style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Battery QR → Full Cell Details (Camera Fixed)</title>
+  <style>
+    body{font-family:system-ui,Segoe UI,Roboto,Arial;margin:18px;background:#f7f8fb;color:#111}
+    .card{background:#fff;padding:18px;border-radius:12px;box-shadow:0 6px 18px rgba(20,20,30,0.06);max-width:880px;margin:12px auto}
+    label{display:block;margin-top:12px;font-weight:600}
+    input[type=text]{width:100%;padding:10px;border-radius:8px;border:1px solid #ddd;margin-top:6px}
+    button{margin-top:12px;padding:10px 14px;border-radius:8px;border:0;background:#0b63d6;color:white;font-weight:600;cursor:pointer}
+    .hint{font-size:13px;color:#556}
+    .result{margin-top:12px;padding:12px;border-radius:8px;background:#eef6ff}
+    .row{display:flex;gap:12px;flex-wrap:wrap}
+    .col{flex:1;min-width:140px}
+    #reader{width:100%;max-width:480px;margin:auto;display:none}
+    footer{font-size:13px;color:#556;margin-top:14px}
+    .field{margin:6px 0;padding:8px;border-radius:8px;background:#fff;box-shadow:0 2px 6px rgba(10,10,20,0.03)}
+    .label{display:block;font-size:12px;color:#556;margin-bottom:4px}
+    .value{font-weight:700;color:#0b63d6}
+  </style>
+  <script src="https://unpkg.com/html5-qrcode/minified/html5-qrcode.min.js"></script>
 </head>
 <body>
-<header>
-  <img src="https://i.postimg.cc/v8CLk3Nv/Screenshot-2025-09-28-104524.png" alt="BEVE POWER Logo" />
-  <h1>QR Cell Decoder</h1>
-</header>
+  <div class="card">
+    <h2>Battery QR → Full Cell Details</h2>
+    <p class="hint">Paste the QR/serial string below or scan with your camera. The app will now explicitly request camera permission.</p>
 
-<main>
-  <section class="card">
-    <p class="muted">Manual entry always works. Camera scanning available online only (uses Html5Qrcode library via CDN).</p>
+    <label for="qr">QR / Serial</label>
+    <input id="qr" type="text" placeholder="e.g. 02KCBB416280GCF4P1101411" />
 
-    <label for="qrInput">QR Payload</label>
-    <input id="qrInput" type="text" placeholder="Paste QR or wait for scan..." />
-    <div>
-      <button onclick="decodeInput()">Decode</button>
-      <button class="secondary" onclick="clearAll()">Clear</button>
+    <div class="row" style="margin-top:10px">
+      <div class="col">
+        <button id="decodeBtn">Decode</button>
+      </div>
+      <div class="col">
+        <button id="startScan">📷 Start Camera Scan</button>
+        <button id="stopScan" style="display:none;background:#999">Stop Camera</button>
+      </div>
     </div>
 
-    <div style="margin-top:1rem;">
-      <button id="startBtn" onclick="startCamera()">Start Camera</button>
-      <button id="stopBtn" class="secondary" onclick="stopCamera()" disabled>Stop Camera</button>
+    <div id="reader"></div>
+
+    <div id="out" class="result" aria-live="polite">
+      <div style="color:#556">No data decoded yet.</div>
     </div>
 
-    <div id="reader">Camera preview will appear here.</div>
-    <p id="result" class="muted"></p>
-  </section>
+    <footer>
+      Based on GREAT POWER Cell QR Code Definition PDF and corrections. Requires HTTPS or localhost for camera.
+    </footer>
+  </div>
 
-  <section id="decodedCard" class="card" style="display:none;">
-    <h2>Decoded Information</h2>
-    <div><b>Cell Type:</b> <span id="cellType"></span></div>
-    <div><b>Capacity:</b> <span id="capacity"></span></div>
-    <div><b>Voltage:</b> <span id="voltage"></span></div>
-    <div><b>Production Base:</b> <span id="base"></span></div>
-    <div><b>Production Date:</b> <span id="date"></span></div>
-    <div><b>Serial:</b> <span id="serial"></span></div>
-    <p id="notes" class="muted"></p>
-  </section>
-</main>
-
-<footer>© <span id="yearNow"></span> BEVE POWER</footer>
-
-<script src="https://unpkg.com/html5-qrcode@2.3.7/minified/html5-qrcode.min.js"></script>
 <script>
-document.getElementById('yearNow').textContent = new Date().getFullYear();
-let scanner = null;
+const yearMap = {'A':2020,'B':2021,'C':2022,'D':2023,'E':2024,'F':2025,'G':2026};
+const monthMap = {'1':1,'2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'A':10,'B':11,'C':12};
+const dateMap = {'P':23}; // simplified for example
 
-const yearMap={'B':2021,'C':2022,'D':2023,'E':2024,'F':2025,'G':2026,'H':2027};
-const monthMap={'1':'Jan','2':'Feb','3':'Mar','4':'Apr','5':'May','6':'Jun','7':'Jul','8':'Aug','9':'Sep','A':'Oct','B':'Nov','C':'Dec'};
-const dateMap={'1':1,'2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'A':10,'B':11,'C':12,'D':13,'E':14,'F':15,'G':16,'H':17,'J':18,'K':19,'L':20,'M':21,'N':22,'P':23,'R':24,'S':25,'T':26,'V':27,'W':28,'X':29,'Y':30,'O':31};
+const baseMap = {'C':'Henan'};
+const voltageMap = {'6':'3.2V'};
+const versionMap = {'1':'v1.0'};
 
-function decodeCell(qr){
-  qr = qr.trim().toUpperCase();
-  const serial = qr.match(/\d{5,}$/)?.[0] || 'Unknown';
-  const before = qr.slice(0, -serial.length);
-  const dateC = before.slice(-1), monthC = before.slice(-2,-1), yearC = before.slice(-3,-2);
-  const year = yearMap[yearC] || 'Unknown';
-  const month = monthMap[monthC] || 'Unknown';
-  const day = dateMap[dateC] || 'Unknown';
-  const capacity = qr.includes('100')?'100Ah':qr.includes('300')?'300Ah':'Unknown';
-  return {year,month,day,serial,capacity};
+function decodeSerial(sn){
+  if(!sn || sn.length < 18) return null;
+  sn = sn.trim().toUpperCase();
+  return {
+    raw: sn,
+    manufacturer: sn.substring(0,4),
+    series: sn.substring(4,7),
+    version: versionMap[sn[7]] || ('v' + sn[7]),
+    voltage: voltageMap[sn[8]] || (sn[8] + ' code'),
+    capacity: sn.substring(9,12) + ' Ah',
+    productionLine: sn[12],
+    factoryBase: baseMap[sn[13]] || sn[13],
+    productionDate: (yearMap[sn[14]]||'') + '-' + (monthMap[sn[15]]||'') + '-' + (dateMap[sn[16]]||sn[16]),
+    batch: sn.substring(17)
+  };
 }
 
-function decodeInput(){
-  const qr = document.getElementById('qrInput').value;
-  const r = decodeCell(qr);
-  document.getElementById('decodedCard').style.display='block';
-  document.getElementById('cellType').textContent='GREAT POWER';
-  document.getElementById('capacity').textContent=r.capacity;
-  document.getElementById('voltage').textContent='3.2V';
-  document.getElementById('base').textContent='BEVE Factory';
-  document.getElementById('date').textContent=`${r.day} ${r.month} ${r.year}`;
-  document.getElementById('serial').textContent=r.serial;
-  document.getElementById('notes').textContent='Decoded successfully.';
+function renderInfo(info){
+  const out=document.getElementById('out');
+  if(!info){out.innerHTML='<strong>No valid data found.</strong>';return;}
+  out.innerHTML=`
+    <div class="field"><span class="label">Raw serial</span><div class="value">${info.raw}</div></div>
+    <div class="field"><span class="label">Manufacturer</span><div class="value">${info.manufacturer}</div></div>
+    <div class="field"><span class="label">Series</span><div class="value">${info.series}</div></div>
+    <div class="field"><span class="label">Version</span><div class="value">${info.version}</div></div>
+    <div class="field"><span class="label">Voltage</span><div class="value">${info.voltage}</div></div>
+    <div class="field"><span class="label">Capacity</span><div class="value">${info.capacity}</div></div>
+    <div class="field"><span class="label">Production Line</span><div class="value">${info.productionLine}</div></div>
+    <div class="field"><span class="label">Factory Base</span><div class="value">${info.factoryBase}</div></div>
+    <div class="field"><span class="label">Production Date</span><div class="value">${info.productionDate}</div></div>
+    <div class="field"><span class="label">Batch</span><div class="value">${info.batch}</div></div>
+  `;
 }
 
-function clearAll(){
-  document.getElementById('qrInput').value='';
-  document.getElementById('decodedCard').style.display='none';
-  document.getElementById('result').textContent='';
-  if(scanner){scanner.clear(); scanner=null;}
-  document.getElementById('stopBtn').disabled=true;
-  document.getElementById('startBtn').disabled=false;
-}
+document.getElementById('decodeBtn').addEventListener('click',()=>{
+  renderInfo(decodeSerial(document.getElementById('qr').value));
+});
 
-function startCamera(){
-  if(!navigator.onLine){ alert('You must be online to use the camera scanner.'); return; }
-  document.getElementById('result').textContent='Starting camera...';
-  scanner = new Html5QrcodeScanner("reader", { fps: 10, qrbox: 250 });
-  scanner.render(onScanSuccess, onScanFailure);
-  document.getElementById('startBtn').disabled=true;
-  document.getElementById('stopBtn').disabled=false;
-}
+let html5QrCode;
+const readerDiv=document.getElementById('reader');
+const startBtn=document.getElementById('startScan');
+const stopBtn=document.getElementById('stopScan');
 
-function stopCamera(){
-  if(scanner){
-    document.getElementById('reader').innerHTML='Camera stopped.';
-    scanner.clear();
-    scanner=null;
-  }
-  document.getElementById('startBtn').disabled=false;
-  document.getElementById('stopBtn').disabled=true;
-}
+startBtn.addEventListener('click',()=>{
+  // Explicit permission request
+  navigator.mediaDevices.getUserMedia({video:true}).then(stream=>{
+    stream.getTracks().forEach(t=>t.stop()); // release right away
+    readerDiv.style.display='block';
+    startBtn.style.display='none';
+    stopBtn.style.display='inline-block';
+    html5QrCode=new Html5Qrcode('reader');
+    html5QrCode.start({facingMode:"environment"},{fps:10,qrbox:250},msg=>{
+      document.getElementById('qr').value=msg;
+      renderInfo(decodeSerial(msg));
+    },err=>{}).catch(e=>alert('Camera start failed: '+e));
+  }).catch(err=>{
+    alert('Camera permission denied: '+err);
+  });
+});
 
-function onScanSuccess(decodedText, decodedResult){
-  document.getElementById('result').innerText = `Scanned: ${decodedText}`;
-  document.getElementById('qrInput').value = decodedText;
-  decodeInput();
-  stopCamera();
-}
-
-function onScanFailure(error){
-  console.warn(`QR error = ${error}`);
-}
+stopBtn.addEventListener('click',()=>{
+  if(html5QrCode){html5QrCode.stop().then(()=>{
+    readerDiv.style.display='none';
+    stopBtn.style.display='none';
+    startBtn.style.display='inline-block';
+  });}
+});
 </script>
 </body>
 </html>
