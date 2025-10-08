@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>BEVE POWER | QR Cell Decoder (Offline)</title>
+<title>BEVE POWER | QR Cell Decoder</title>
 <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
 <style>
 body{font-family:Arial,Helvetica,sans-serif;margin:0;background:#fafafa;color:#222;}
@@ -15,26 +15,35 @@ main{max-width:900px;margin:auto;padding:1rem;}
 label{font-weight:bold;display:block;margin-bottom:0.5rem;}
 input[type=text]{width:100%;padding:0.6rem;font-size:1rem;border:1px solid #ccc;border-radius:6px;}
 button{background:#d92323;color:#fff;border:none;padding:0.6rem 1rem;border-radius:6px;cursor:pointer;font-size:1rem;margin:0.3rem;}
-button:disabled{background:#999;}
+button:disabled{background:#999;cursor:not-allowed;}
 .result{display:flex;flex-wrap:wrap;gap:0.6rem;}
 .box{flex:1 1 200px;background:#f7f7f7;border-radius:6px;padding:0.6rem;}
+.status{font-size:.9rem;color:#555;margin-top:.4rem;}
+.status.ok{color:#0a7f2e;}
+.status.warn{color:#b85c00;}
 @media(max-width:600px){.box{flex:1 1 100%;}}
 </style>
 </head>
 <body>
 <header>
 <img src="https://i.postimg.cc/v8CLk3Nv/Screenshot-2025-09-28-104524.png" alt="BEVE POWER Logo">
-<h1>QR Cell Decoder (Offline)</h1>
+<h1>QR Cell Decoder</h1>
 </header>
 <main>
 <div class="card">
 <label>Enter or scan QR code</label>
 <input id="qrInput" type="text" placeholder="Paste QR code text here">
 <div><button onclick="decodeInput()">Decode</button><button onclick="clearAll()">Clear</button></div>
-<p style="font-size:0.9rem;color:#555;">Or scan with camera:</p>
-<div id="qrScanner" style="min-height:200px"></div>
-<div><button id="startBtn" onclick="startScanner()">Start Camera</button><button id="stopBtn" onclick="stopScanner()" disabled>Stop Camera</button></div>
+
+<p class="status" id="netStatus">Checking connection…</p>
+<p style="font-size:0.9rem;color:#555;margin:.25rem 0;">Camera scanning (online only):</p>
+<div id="qrScanner" style="min-height:200px;border:1px dashed #ddd;border-radius:8px;display:flex;align-items:center;justify-content:center;"></div>
+<div>
+  <button id="startBtn" onclick="startScanner()" disabled>Start Camera</button>
+  <button id="stopBtn" onclick="stopScanner()" disabled>Stop Camera</button>
 </div>
+</div>
+
 <div id="decodedCard" class="card" style="display:none;">
 <h2>Decoded Information</h2>
 <div class="result">
@@ -49,16 +58,119 @@ button:disabled{background:#999;}
 </div>
 </main>
 
-<script src="assets/html5-qrcode.min.js"></script>
 <script>
+// --- Online-only loader for camera library ---
+const CDN_LIB = "https://unpkg.com/html5-qrcode@2.3.7/minified/html5-qrcode.min.js";
+let html5qrcodeReady = false, scanner = null, running = false;
+
+function setStatus(text, cls){
+  const el = document.getElementById('netStatus');
+  el.textContent = text;
+  el.className = 'status ' + (cls || '');
+}
+
+function updateOnlineState(){
+  if(navigator.onLine){
+    setStatus("Online: camera scanning available.", "ok");
+    loadCameraLibIfNeeded();
+  }else{
+    setStatus("Offline: camera scanning disabled. You can still paste QR text.", "warn");
+    document.getElementById('startBtn').disabled = true;
+    document.getElementById('stopBtn').disabled = true;
+  }
+}
+
+function loadScript(src){
+  return new Promise((resolve, reject)=>{
+    const s = document.createElement('script');
+    s.src = src; s.async = true;
+    s.onload = resolve;
+    s.onerror = ()=>reject(new Error("Failed to load " + src));
+    document.head.appendChild(s);
+  });
+}
+
+async function loadCameraLibIfNeeded(){
+  if(html5qrcodeReady) { document.getElementById('startBtn').disabled = false; return; }
+  try{
+    await loadScript(CDN_LIB);
+    if(typeof Html5Qrcode === 'function'){
+      html5qrcodeReady = true;
+      document.getElementById('startBtn').disabled = false;
+    }else{
+      setStatus("Camera library not available yet. Try refreshing.", "warn");
+    }
+  }catch(e){
+    setStatus("Could not load camera library from CDN. Camera disabled.", "warn");
+  }
+}
+
+window.addEventListener('online', updateOnlineState);
+window.addEventListener('offline', updateOnlineState);
+window.addEventListener('load', updateOnlineState);
+
+// --- Decoder logic (same as before) ---
 const yearMap={'B':2021,'C':2022,'D':2023,'E':2024,'F':2025,'G':2026,'H':2027};
 const monthMap={'1':'Jan','2':'Feb','3':'Mar','4':'Apr','5':'May','6':'Jun','7':'Jul','8':'Aug','9':'Sep','A':'Oct','B':'Nov','C':'Dec'};
 const dateMap={'1':1,'2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'A':10,'B':11,'C':12,'D':13,'E':14,'F':15,'G':16,'H':17,'J':18,'K':19,'L':20,'M':21,'N':22,'P':23,'R':24,'S':25,'T':26,'V':27,'W':28,'X':29,'Y':30,'O':31};
-function decodeCell(qr){qr=qr.trim().toUpperCase();const serial=qr.match(/\d{5,}$/)?.[0]||'Unknown';const before=qr.slice(0,-serial.length);const dateC=before.slice(-1),monthC=before.slice(-2,-1),yearC=before.slice(-3,-2);const year=yearMap[yearC]||'Unknown',month=monthMap[monthC]||'Unknown',day=dateMap[dateC]||'Unknown';const capacity=qr.includes('100')?'100Ah':qr.includes('300')?'300Ah':qr.includes('280')?'280Ah':'Unknown';return{year,month,day,serial,capacity};}
-function decodeInput(){const qr=document.getElementById('qrInput').value;const r=decodeCell(qr);document.getElementById('decodedCard').style.display='block';document.getElementById('cellType').textContent='GREAT POWER';document.getElementById('capacity').textContent=r.capacity;document.getElementById('voltage').textContent='3.2V';document.getElementById('base').textContent='BEVE Factory';document.getElementById('date').textContent=`${r.day} ${r.month} ${r.year}`;document.getElementById('serial').textContent=r.serial;document.getElementById('notes').textContent='Decoded successfully.';}
-function clearAll(){document.getElementById('qrInput').value='';document.getElementById('decodedCard').style.display='none';stopScanner();}
-let scanner,running=false;async function startScanner(){try{scanner=new Html5Qrcode('qrScanner');const cfg={fps:10,qrbox:{width:250,height:250}};await scanner.start({facingMode:'environment'},cfg,(txt)=>{stopScanner();document.getElementById('qrInput').value=txt;decodeInput();});running=true;document.getElementById('startBtn').disabled=true;document.getElementById('stopBtn').disabled=false;}catch(e){alert('Camera error: '+e);}}
-function stopScanner(){if(scanner&&running){scanner.stop().then(()=>scanner.clear());}running=false;document.getElementById('startBtn').disabled=false;document.getElementById('stopBtn').disabled=true;}
+
+function decodeCell(qr){
+  qr = qr.trim().toUpperCase();
+  const serial = qr.match(/\d{5,}$/)?.[0] || 'Unknown';
+  const before = qr.slice(0, -serial.length);
+  const dateC = before.slice(-1), monthC = before.slice(-2,-1), yearC = before.slice(-3,-2);
+  const year = yearMap[yearC] || 'Unknown', month = monthMap[monthC] || 'Unknown', day = dateMap[dateC] || 'Unknown';
+  const capacity = qr.includes('100') ? '100Ah' : qr.includes('300') ? '300Ah' : qr.includes('280') ? '280Ah' : 'Unknown';
+  return {year, month, day, serial, capacity};
+}
+
+function decodeInput(){
+  const qr = document.getElementById('qrInput').value || '';
+  const r = decodeCell(qr);
+  document.getElementById('decodedCard').style.display='block';
+  document.getElementById('cellType').textContent='GREAT POWER';
+  document.getElementById('capacity').textContent=r.capacity;
+  document.getElementById('voltage').textContent='3.2V';
+  document.getElementById('base').textContent='BEVE Factory';
+  document.getElementById('date').textContent=`${r.day} ${r.month} ${r.year}`;
+  document.getElementById('serial').textContent=r.serial;
+  document.getElementById('notes').textContent='Decoded successfully.';
+}
+
+function clearAll(){
+  document.getElementById('qrInput').value='';
+  document.getElementById('decodedCard').style.display='none';
+  stopScanner();
+}
+
+// --- Camera functions (only active if library loaded and online) ---
+async function startScanner(){
+  if(!navigator.onLine){ alert('You are offline. Camera scanning is only available online.'); return; }
+  if(typeof Html5Qrcode !== 'function'){ alert('Camera library not loaded yet. Please wait or refresh.'); return; }
+  try{
+    scanner = new Html5Qrcode('qrScanner');
+    const cfg = { fps: 10, qrbox: { width: 250, height: 250 } };
+    await scanner.start({ facingMode:'environment' }, cfg, (txt)=>{
+      stopScanner();
+      document.getElementById('qrInput').value = txt;
+      decodeInput();
+    });
+    running = true;
+    document.getElementById('startBtn').disabled = true;
+    document.getElementById('stopBtn').disabled = false;
+  }catch(e){
+    alert('Camera error: ' + e);
+  }
+}
+
+function stopScanner(){
+  if(scanner && running){
+    scanner.stop().then(()=>scanner.clear()).catch(()=>{});
+  }
+  running = false;
+  document.getElementById('startBtn').disabled = !html5qrcodeReady || !navigator.onLine;
+  document.getElementById('stopBtn').disabled = true;
+}
 </script>
 </body>
 </html>

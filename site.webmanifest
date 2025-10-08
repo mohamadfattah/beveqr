@@ -1,6 +1,6 @@
 {
-  "name": "BEVE POWER QR Decoder Offline",
-  "short_name": "BEVE QR Offline",
+  "name": "BEVE POWER QR Decoder (Online Camera)",
+  "short_name": "BEVE QR",
   "start_url": ".",
   "display": "standalone",
   "background_color": "#ffffff",

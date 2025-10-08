@@ -1,7 +1,11 @@
-# BEVE POWER QR Decoder (Offline)
-This version works fully offline.
+# BEVE POWER — QR Cell Decoder (Online-only Camera)
+- Deployed on GitHub Pages.
+- Camera scanning works **only when online**. The page loads `html5-qrcode` from CDN if `navigator.onLine` is true.
+- When offline, camera UI is disabled; manual QR text entry still works.
 
-1. Download `html5-qrcode.min.js` from:
-   https://unpkg.com/html5-qrcode@2.3.7/minified/html5-qrcode.min.js
-2. Place it in `assets/`, replacing the placeholder.
-3. Open `index.html` in your browser or upload to any static host.
+## Deploy
+Upload all files to your GitHub repository and enable GitHub Pages (Settings → Pages).
+
+## Notes
+- Page auto-detects online/offline and toggles camera availability.
+- If your network blocks `unpkg.com`, you can switch CDN to jsDelivr in the script (`CDN_LIB` constant).
